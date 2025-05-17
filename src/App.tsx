@@ -1,27 +1,66 @@
 import React, { useState, useRef } from 'react';
 import QuizApp from './components/QuizApp';
 import { useDarkMode } from './contexts/DarkModeContext';
-import { Question } from './types';
+import { Question, QuestionType } from './types';
 
 const GEMINI_API_KEY = 'AIzaSyBgnA_BgnoYZY9IJl3LQ_LK1nbCeU18w24'; // <-- Place your Gemini API key here
 
-const AI_PROMPT = (material: string, numQuestions: number, customInstructions?: string) => `
-You are an expert quiz maker. Based on the following study material, generate ${numQuestions} high-quality, diverse, and challenging multiple-choice questions. Each question should:
-- Be clear and unambiguous
-- Have 2-5 options (labeled a, b, c, d, ...)
-- Have only one correct answer (use the 'answer' field as the option letter)
-- Include a one-sentence explanation for the answer
+const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
+  mcq: 'MCQ (Single Correct)',
+  msq: 'MSQ (Multiple Correct)',
+  truefalse: 'True/False',
+  fillblank: 'Fill in the Blanks',
+};
+const QUESTION_TYPE_SCHEMA: Record<QuestionType, string> = {
+  mcq: `{
+    "type": "mcq",
+    "q": "Question text",
+    "options": { "a": "Option A", "b": "Option B", ... },
+    "answer": "correct option letter",
+    "explanation": "One-sentence explanation."
+  }`,
+  msq: `{
+    "type": "msq",
+    "q": "Question text",
+    "options": { "a": "Option A", "b": "Option B", ... },
+    "answer": ["a", "c"],
+    "explanation": "One-sentence explanation."
+  }`,
+  truefalse: `{
+    "type": "truefalse",
+    "q": "Question text",
+    "options": { "a": "True", "b": "False" },
+    "answer": "a",
+    "explanation": "One-sentence explanation."
+  }`,
+  fillblank: `{
+    "type": "fillblank",
+    "q": "Question with a blank (use ____ for blank)",
+    "answer": "correct answer",
+    "explanation": "One-sentence explanation."
+  }`,
+};
+
+function getSchemaForTypes(types: QuestionType[]): string {
+  return types.map(t => QUESTION_TYPE_SCHEMA[t]).join(',\n');
+}
+
+const AI_PROMPT = (material: string, numQuestions: number, customInstructions: string, types: QuestionType[]) => {
+  const typeList = types.map(t => QUESTION_TYPE_LABELS[t]).join(', ');
+  return `
+You are an expert quiz maker. Based on the following study material, generate ${numQuestions} high-quality, diverse, and challenging questions. Allowed question types: ${typeList}.
+
+For each question, use the following JSON schema (choose the correct type for each question):
+[SCHEMA_START]
+[
+${getSchemaForTypes(types)}
+]
+[SCHEMA_END]
 
 ${customInstructions && customInstructions.trim() ? `\n\nFollow these additional instructions from the user:\n${customInstructions.trim()}\n` : ''}
 Return ONLY a JSON array in this format (no extra text):
 [START_JSON]
 [
-  {
-    "q": "Question text",
-    "options": { "a": "Option A", "b": "Option B", "c": "Option C", "d": "Option D" },
-    "answer": "correct option letter",
-    "explanation": "One-sentence explanation."
-  },
   ...
 ]
 [END_JSON]
@@ -29,6 +68,9 @@ Return ONLY a JSON array in this format (no extra text):
 Material:
 ${material}
 `;
+};
+
+const DEFAULT_TYPES: QuestionType[] = ['mcq'];
 
 const App: React.FC = () => {
   const { isDarkMode, toggleDarkMode } = useDarkMode();
@@ -43,6 +85,7 @@ const App: React.FC = () => {
   const [aiRawResponse, setAiRawResponse] = useState<string | null>(null);
   const [showRawResponse, setShowRawResponse] = useState(false);
   const [customInstructions, setCustomInstructions] = useState('');
+  const [selectedTypes, setSelectedTypes] = useState<QuestionType[]>(DEFAULT_TYPES);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Parse JSON between [START_JSON] and [END_JSON]
@@ -50,7 +93,10 @@ const App: React.FC = () => {
     const start = text.indexOf('[START_JSON]');
     const end = text.indexOf('[END_JSON]');
     if (start !== -1 && end !== -1 && end > start) {
-      return text.substring(start + 12, end).trim();
+      let jsonStr = text.substring(start + 12, end).trim();
+      // Remove all occurrences of ``` and ```json (case-insensitive)
+      jsonStr = jsonStr.replace(/```json|```/gi, '');
+      return jsonStr.trim();
     }
     return null;
   }
@@ -77,7 +123,7 @@ const App: React.FC = () => {
     setAiRawResponse(null);
     setShowRawResponse(false);
     try {
-      const prompt = AI_PROMPT(aiInput, aiNumQuestions, customInstructions);
+      const prompt = AI_PROMPT(aiInput, aiNumQuestions, customInstructions, selectedTypes);
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -140,6 +186,14 @@ const App: React.FC = () => {
     e.target.value = '';
   };
 
+  const handleTypeChange = (type: QuestionType) => {
+    setSelectedTypes(prev =>
+      prev.includes(type)
+        ? prev.length === 1 ? prev : prev.filter(t => t !== type)
+        : [...prev, type]
+    );
+  };
+
   return (
     <div className={`min-h-screen ${isDarkMode ? 'bg-gray-900 text-white' : 'bg-gradient-to-br from-indigo-100 via-purple-100 to-pink-100'}`}>
       <nav className={`${isDarkMode ? 'bg-gray-800/70' : 'bg-indigo-50/70'} backdrop-blur-md shadow-md sticky top-0 z-10`}>
@@ -156,7 +210,7 @@ const App: React.FC = () => {
       </nav>
       {!quizQuestions ? (
         <div className="container mx-auto px-4 py-12 max-w-2xl">
-          <div className="flex gap-4 mb-8">
+          <div className="flex gap-4 mb-8 flex-wrap">
             <button
               className={`px-4 py-2 rounded-lg font-semibold transition-all ${mode === 'ai' ? 'bg-indigo-600 text-white' : isDarkMode ? 'bg-gray-800 text-gray-200' : 'bg-gray-200 text-gray-800'}`}
               onClick={() => setMode('ai')}
@@ -182,6 +236,31 @@ const App: React.FC = () => {
               style={{ display: 'none' }}
               onChange={handleImportQuiz}
             />
+          </div>
+          <div className="mb-6">
+            <label className="font-semibold block mb-2">Question Types:</label>
+            <div className="flex flex-wrap gap-4">
+              {(['mcq', 'msq', 'truefalse', 'fillblank'] as QuestionType[]).map(type => (
+                <label key={type} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedTypes.includes(type)}
+                    onChange={() => handleTypeChange(type)}
+                    className="accent-indigo-600 w-5 h-5"
+                  />
+                  <span className="font-medium">{QUESTION_TYPE_LABELS[type]}</span>
+                </label>
+              ))}
+            </div>
+            <div className="text-xs mt-2 text-gray-500 dark:text-gray-400">
+              <b>Note:</b> When entering JSON manually, add a <code>type</code> field to each question (e.g. <code>"type": "mcq"</code>). If omitted, MCQ is assumed. See schema below for each type.
+            </div>
+            <details className="mt-2">
+              <summary className="cursor-pointer underline text-sm">Show JSON schema for selected types</summary>
+              <pre className={`mt-2 p-2 rounded bg-gray-100 dark:bg-gray-800 text-xs overflow-x-auto`}>
+                {getSchemaForTypes(selectedTypes)}
+              </pre>
+            </details>
           </div>
           {mode === 'ai' && (
             <div>

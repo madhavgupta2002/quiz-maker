@@ -3,31 +3,57 @@ import QuizQuestion from './QuizQuestion';
 import QuizStats from './QuizStats';
 import { ArrowRight, ArrowLeft, RefreshCw, Home } from 'lucide-react';
 import { useDarkMode } from '../contexts/DarkModeContext';
-import { Question } from '../types';
+import { Question, QuestionType } from '../types';
 
 interface QuizAppProps {
   questions: Question[];
   onBack: () => void;
 }
 
-const getStatus = (answered: string | null, correct: string, current: boolean) => {
+const getStatus = (answered: string | string[] | null, correct: string | string[], current: boolean, type: QuestionType) => {
   if (current) return 'current';
   if (answered === null) return 'unanswered';
-  if (answered === correct) return 'correct';
-  return 'incorrect';
+  if (type === 'msq') {
+    if (!Array.isArray(answered) || !Array.isArray(correct)) return 'incorrect';
+    const aSet = new Set(answered);
+    const cSet = new Set(correct);
+    if (aSet.size !== cSet.size) return 'incorrect';
+    for (const v of aSet) if (!cSet.has(v)) return 'incorrect';
+    return 'correct';
+  }
+  if (type === 'fillblank') {
+    if (typeof answered !== 'string' || typeof correct !== 'string') return 'incorrect';
+    return answered.trim().toLowerCase() === correct.trim().toLowerCase() ? 'correct' : 'incorrect';
+  }
+  return answered === correct ? 'correct' : 'incorrect';
 };
 
 const QuizApp: React.FC<QuizAppProps> = ({ questions, onBack }) => {
   const { isDarkMode } = useDarkMode();
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [answeredQuestions, setAnsweredQuestions] = useState<(string | null)[]>(Array(questions.length).fill(null));
+  const [answeredQuestions, setAnsweredQuestions] = useState<(string | string[] | null)[]>(Array(questions.length).fill(null));
   const [showResult, setShowResult] = useState(false);
   const [quizCompleted, setQuizCompleted] = useState(false);
   const [score, setScore] = useState(0);
 
-  const handleAnswer = (answer: string) => {
+  const currentQuestion = questions[currentQuestionIndex];
+  const selectedAnswer = answeredQuestions[currentQuestionIndex];
+  const type: QuestionType = currentQuestion.type || 'mcq';
+
+  // Handle answer for all types
+  const handleAnswer = (answer: string | string[]) => {
     if (answeredQuestions[currentQuestionIndex] !== null) return;
-    const isCorrect = answer === questions[currentQuestionIndex].answer;
+    let isCorrect = false;
+    if (type === 'msq') {
+      const correct = Array.isArray(currentQuestion.answer) ? currentQuestion.answer : [];
+      const aSet = new Set(answer as string[]);
+      const cSet = new Set(correct);
+      isCorrect = aSet.size === cSet.size && [...aSet].every(x => cSet.has(x));
+    } else if (type === 'fillblank') {
+      isCorrect = typeof answer === 'string' && typeof currentQuestion.answer === 'string' && answer.trim().toLowerCase() === currentQuestion.answer.trim().toLowerCase();
+    } else {
+      isCorrect = answer === currentQuestion.answer;
+    }
     setAnsweredQuestions(prev => {
       const updated = [...prev];
       updated[currentQuestionIndex] = answer;
@@ -64,9 +90,6 @@ const QuizApp: React.FC<QuizAppProps> = ({ questions, onBack }) => {
     setQuizCompleted(true);
   };
 
-  const currentQuestion = questions[currentQuestionIndex];
-  const selectedAnswer = answeredQuestions[currentQuestionIndex];
-
   // Color classes for status
   const getButtonClass = (status: string) => {
     if (status === 'current') return `${isDarkMode ? 'border-blue-400' : 'border-blue-600'} ring-2 ring-blue-400 bg-gray-200 text-blue-700`;
@@ -93,7 +116,18 @@ const QuizApp: React.FC<QuizAppProps> = ({ questions, onBack }) => {
           <div className="space-y-8">
             {questions.map((q, idx) => {
               const userAns = answeredQuestions[idx];
-              const isCorrect = userAns === q.answer;
+              const qType: QuestionType = q.type || 'mcq';
+              let isCorrect = false;
+              if (qType === 'msq') {
+                const correct = Array.isArray(q.answer) ? q.answer : [];
+                const aSet = new Set(userAns as string[]);
+                const cSet = new Set(correct);
+                isCorrect = aSet.size === cSet.size && [...aSet].every(x => cSet.has(x));
+              } else if (qType === 'fillblank') {
+                isCorrect = typeof userAns === 'string' && typeof q.answer === 'string' && userAns.trim().toLowerCase() === q.answer.trim().toLowerCase();
+              } else {
+                isCorrect = userAns === q.answer;
+              }
               const wasAttempted = userAns !== null;
               return (
                 <div key={idx} className={`p-4 rounded-lg ${isCorrect ? (isDarkMode ? 'bg-green-900/30' : 'bg-green-100') : (wasAttempted ? (isDarkMode ? 'bg-red-900/30' : 'bg-red-100') : (isDarkMode ? 'bg-gray-800' : 'bg-gray-50'))}`}>
@@ -105,7 +139,12 @@ const QuizApp: React.FC<QuizAppProps> = ({ questions, onBack }) => {
                     <span className="font-semibold">Your answer: </span>
                     {wasAttempted ? (
                       <span className={`font-bold ${isCorrect ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>
-                        {q.options[userAns as keyof typeof q.options] || userAns} {isCorrect ? '(Correct)' : '(Wrong)'}
+                        {qType === 'msq' && Array.isArray(userAns)
+                          ? (userAns as string[]).map(opt => q.options?.[opt] || opt).join(', ')
+                          : qType === 'fillblank'
+                            ? userAns
+                            : q.options?.[userAns as keyof typeof q.options] || userAns}
+                        {isCorrect ? ' (Correct)' : ' (Wrong)'}
                       </span>
                     ) : (
                       <span className="text-gray-500">Not answered</span>
@@ -114,7 +153,13 @@ const QuizApp: React.FC<QuizAppProps> = ({ questions, onBack }) => {
                   {(!isCorrect || !wasAttempted) && (
                     <div className="mb-2">
                       <span className="font-semibold">Correct answer: </span>
-                      <span className="font-bold text-green-700 dark:text-green-300">{q.options[q.answer as keyof typeof q.options]}</span>
+                      <span className="font-bold text-green-700 dark:text-green-300">
+                        {qType === 'msq' && Array.isArray(q.answer)
+                          ? (q.answer as string[]).map(opt => q.options?.[opt] || opt).join(', ')
+                          : qType === 'fillblank'
+                            ? q.answer
+                            : q.options?.[q.answer as keyof typeof q.options] || q.answer}
+                      </span>
                     </div>
                   )}
                   {(!isCorrect || !wasAttempted) && (
@@ -170,7 +215,7 @@ const QuizApp: React.FC<QuizAppProps> = ({ questions, onBack }) => {
           <h3 className={`text-center font-bold mb-4 ${isDarkMode ? 'text-blue-300' : 'text-indigo-800'}`}>Answer Status</h3>
           <div className="grid grid-cols-5 gap-3 items-center justify-center">
             {questions.map((q, idx) => {
-              const status = getStatus(answeredQuestions[idx], q.answer, idx === currentQuestionIndex);
+              const status = getStatus(answeredQuestions[idx], q.answer, idx === currentQuestionIndex, q.type || 'mcq');
               return (
                 <button
                   key={idx}
