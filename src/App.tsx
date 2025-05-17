@@ -143,7 +143,7 @@ const App: React.FC = () => {
     setShowRawResponse(false);
     try {
       const prompt = AI_PROMPT(aiInput, aiNumQuestions, customInstructions, selectedTypes);
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-04-17:generateContent?key=${GEMINI_API_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -229,7 +229,7 @@ const App: React.FC = () => {
     <div className={`min-h-screen ${isDarkMode ? 'bg-gray-900 text-white' : 'bg-gradient-to-br from-indigo-100 via-purple-100 to-pink-100'}`}>
       <nav className={`${isDarkMode ? 'bg-gray-800/70' : 'bg-indigo-50/70'} backdrop-blur-md shadow-md sticky top-0 z-10`}>
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
-          <span className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>Quiz Maker</span>
+          <span className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-800'}`}>QuizCraft</span>
           <button
             onClick={toggleDarkMode}
             className={`p-2 ${isDarkMode ? 'text-gray-300 hover:text-indigo-300 hover:bg-gray-700' : 'text-gray-600 hover:text-indigo-600 hover:bg-indigo-100'} transition-all rounded-full`}
