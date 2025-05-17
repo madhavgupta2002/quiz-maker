@@ -88,8 +88,9 @@ const App: React.FC = () => {
   const [selectedTypes, setSelectedTypes] = useState<QuestionType[]>(DEFAULT_TYPES);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Parse JSON between [START_JSON] and [END_JSON]
+  // Improved JSON extraction: Try to extract JSON array even if [START_JSON]/[END_JSON] are missing
   function extractJsonFromResponse(text: string): string | null {
+    // Try to extract between [START_JSON] and [END_JSON] first
     const start = text.indexOf('[START_JSON]');
     const end = text.indexOf('[END_JSON]');
     if (start !== -1 && end !== -1 && end > start) {
@@ -98,6 +99,24 @@ const App: React.FC = () => {
       jsonStr = jsonStr.replace(/```json|```/gi, '');
       return jsonStr.trim();
     }
+
+    // Fallback: Try to find the first JSON array in the text
+    // This will match the first [...] block, even if there is text before/after
+    const arrayMatch = text.match(/\[\s*{[\s\S]*?}\s*\]/m);
+    if (arrayMatch) {
+      let jsonStr = arrayMatch[0];
+      // Remove all occurrences of ``` and ```json (case-insensitive)
+      jsonStr = jsonStr.replace(/```json|```/gi, '');
+      return jsonStr.trim();
+    }
+
+    // Fallback: Try to find a code block with JSON
+    const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (codeBlockMatch) {
+      let jsonStr = codeBlockMatch[1];
+      return jsonStr.trim();
+    }
+
     return null;
   }
 
@@ -135,9 +154,21 @@ const App: React.FC = () => {
       // Find the text response
       const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
       setAiRawResponse(text);
+
+      // Try to extract JSON
       const jsonStr = extractJsonFromResponse(text);
       if (!jsonStr) throw new Error('Could not find JSON in AI response.');
-      const parsed = JSON.parse(jsonStr);
+
+      let parsed;
+      try {
+        parsed = JSON.parse(jsonStr);
+      } catch (err) {
+        // Try to fix common JSON issues (e.g., trailing commas)
+        // Remove trailing commas before } or ]
+        const fixed = jsonStr.replace(/,\s*([}\]])/g, '$1');
+        parsed = JSON.parse(fixed);
+      }
+
       if (!Array.isArray(parsed)) throw new Error('AI did not return a JSON array.');
       setQuizQuestions(parsed);
       setError('');
