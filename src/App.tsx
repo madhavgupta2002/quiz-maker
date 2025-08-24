@@ -47,27 +47,7 @@ function getSchemaForTypes(types: QuestionType[]): string {
 
 const AI_PROMPT = (material: string, numQuestions: number, customInstructions: string, types: QuestionType[]) => {
   const typeList = types.map(t => QUESTION_TYPE_LABELS[t]).join(', ');
-  return `
-You are an expert quiz maker. Based on the following study material, generate ${numQuestions} high-quality, diverse, and challenging questions. Allowed question types: ${typeList}.
-
-For each question, use the following JSON schema (choose the correct type for each question):
-[SCHEMA_START]
-[
-${getSchemaForTypes(types)}
-]
-[SCHEMA_END]
-
-${customInstructions && customInstructions.trim() ? `\n\nFollow these additional instructions from the user:\n${customInstructions.trim()}\n` : ''}
-Return ONLY a JSON array in this format (no extra text):
-[START_JSON]
-[
-  ...
-]
-[END_JSON]
-
-Material:
-${material}
-`;
+  return `\nYou are an expert quiz maker. Based on the following study material, generate ${numQuestions} high-quality, diverse, and challenging questions. Allowed question types: ${typeList}.\n\nFor each question, use the following JSON schema (choose the correct type for each question):\n[SCHEMA_START]\n[\n${getSchemaForTypes(types)}\n]\n[SCHEMA_END]\n\n${customInstructions && customInstructions.trim() ? `\n\nFollow these additional instructions from the user:\n${customInstructions.trim()}\n` : ''}\nReturn ONLY a JSON array in this format (no extra text):\n[START_JSON]\n[\n  ...\n]\n[END_JSON]\n\nMaterial:\n${material}\n\nIMPORTANT: If you include any code, formulas, or structured data in your explanations, always format them as code blocks using triple backticks (\`\`\`) with the appropriate language if possible. Use proper indentation and spacing. The output will be parsed and rendered on screen as code blocks, so do not use inline code for multi-line code or formulas. Do not add extra commentary outside the JSON or code blocks.`;
 };
 
 const DEFAULT_TYPES: QuestionType[] = ['mcq'];
@@ -78,6 +58,41 @@ const GEMINI_MODELS = [
   { name: 'Gemini 2.5 Flash-Lite', id: 'gemini-2.5-flash-lite' },
   { name: 'Gemini 2.0 Flash', id: 'gemini-2.0-flash' },
 ];
+
+// Add this helper to render markdown code blocks from a string
+function renderMarkdownWithCodeBlocks(text: string) {
+  // Split by code blocks (```[lang]\n...\n```)
+  const parts = [];
+  const regex = /```([a - zA - Z0 - 9] *) \n([\s\S] *?)```/g;
+  let lastIndex = 0;
+  let match;
+  let idx = 0;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      // Push text before code block
+      parts.push({ type: 'text', content: text.slice(lastIndex, match.index) });
+    }
+    parts.push({ type: 'code', lang: match[1], content: match[2] });
+    lastIndex = regex.lastIndex;
+    idx++;
+  }
+  if (lastIndex < text.length) {
+    parts.push({ type: 'text', content: text.slice(lastIndex) });
+  }
+  return (
+    <div className="space-y-4">
+      {parts.map((part, i) =>
+        part.type === 'code' ? (
+          <pre key={i} className="bg-gray-900 text-green-200 rounded-lg p-4 overflow-x-auto text-sm whitespace-pre-wrap border border-gray-700">
+            <code>{part.content}</code>
+          </pre>
+        ) : (
+          <div key={i} className="whitespace-pre-wrap text-sm">{part.content}</div>
+        )
+      )}
+    </div>
+  );
+}
 
 const App: React.FC = () => {
   const { isDarkMode, toggleDarkMode } = useDarkMode();
@@ -104,8 +119,8 @@ const App: React.FC = () => {
     const end = text.indexOf('[END_JSON]');
     if (start !== -1 && end !== -1 && end > start) {
       let jsonStr = text.substring(start + 12, end).trim();
-      // Remove all occurrences of ``` and ```json (case-insensitive)
-      jsonStr = jsonStr.replace(/```json|```/gi, '');
+      // Remove all occurrences of ``` and```json (case-insensitive)
+      jsonStr = jsonStr.replace(/```json | ```/gi, '');
       return jsonStr.trim();
     }
 
@@ -114,13 +129,13 @@ const App: React.FC = () => {
     const arrayMatch = text.match(/\[\s*{[\s\S]*?}\s*\]/m);
     if (arrayMatch) {
       let jsonStr = arrayMatch[0];
-      // Remove all occurrences of ``` and ```json (case-insensitive)
-      jsonStr = jsonStr.replace(/```json|```/gi, '');
+      // Remove all occurrences of ``` and```json (case-insensitive)
+      jsonStr = jsonStr.replace(/```json | ```/gi, '');
       return jsonStr.trim();
     }
 
     // Fallback: Try to find a code block with JSON
-    const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    const codeBlockMatch = text.match(/```(?: json) ?\s * ([\s\S] *?) \s * ```/i);
     if (codeBlockMatch) {
       let jsonStr = codeBlockMatch[1];
       return jsonStr.trim();
@@ -183,6 +198,7 @@ const App: React.FC = () => {
       if (!Array.isArray(parsed)) throw new Error('AI did not return a JSON array.');
       setQuizQuestions(parsed);
       setError('');
+
     } catch (e: any) {
       setError(e.message || 'Failed to generate quiz.');
     } finally {
@@ -409,6 +425,11 @@ const App: React.FC = () => {
                       Download API Response (Debug)
                     </button>
                   )}
+                </div>
+              )}
+              {showRawResponse && aiRawResponse && (
+                <div className="mt-4">
+                  {renderMarkdownWithCodeBlocks(aiRawResponse)}
                 </div>
               )}
             </div>

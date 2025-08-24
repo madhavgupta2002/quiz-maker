@@ -3,6 +3,37 @@ import { Question, QuestionType } from '../types';
 import { CheckCircle, XCircle } from 'lucide-react';
 import { useDarkMode } from '../contexts/DarkModeContext';
 
+// Helper to render markdown/code blocks
+function renderMarkdownWithCodeBlocks(text: string) {
+  const parts = [];
+  const regex = /```([a-zA-Z0-9]*)\n([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ type: 'text', content: text.slice(lastIndex, match.index) });
+    }
+    parts.push({ type: 'code', lang: match[1], content: match[2] });
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    parts.push({ type: 'text', content: text.slice(lastIndex) });
+  }
+  return (
+    <div className="space-y-4">
+      {parts.map((part, i) =>
+        part.type === 'code' ? (
+          <pre key={i} className="bg-gray-900 text-green-200 rounded-lg p-4 overflow-x-auto text-sm whitespace-pre-wrap border border-gray-700">
+            <code>{part.content}</code>
+          </pre>
+        ) : (
+          <div key={i} className="whitespace-pre-wrap text-base">{part.content}</div>
+        )
+      )}
+    </div>
+  );
+}
+
 interface QuizQuestionProps {
   question: Question;
   onAnswer: (answer: string | string[]) => void;
@@ -118,7 +149,7 @@ const QuizQuestion: React.FC<QuizQuestionProps> = ({
 
   return (
     <div className="w-full max-w-3xl mx-auto">
-      <h2 className={`text-2xl font-bold mb-6 whitespace-pre-line ${isDarkMode ? 'text-gray-100' : 'text-indigo-900'}`}>{formatText(question.q)}</h2>
+      <h2 className={`text-2xl font-bold mb-6 whitespace-pre-line ${isDarkMode ? 'text-gray-100' : 'text-indigo-900'}`}>{renderMarkdownWithCodeBlocks(question.q)}</h2>
       {/* MCQ / TrueFalse */}
       {(type === 'mcq' || type === 'truefalse') && question.options && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -228,7 +259,7 @@ const QuizQuestion: React.FC<QuizQuestionProps> = ({
       {showResult && (
         <div className={`mt-6 p-4 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-gray-700 text-gray-300' : 'bg-blue-100 text-blue-700'}`}>
           <h3 className={`text-lg font-semibold mb-2 ${isDarkMode ? 'text-gray-100' : 'text-blue-800'}`}>Explanation:</h3>
-          <p className={isDarkMode ? 'text-gray-300' : 'text-blue-700'}>{formatText(question.explanation)}</p>
+          <div className={isDarkMode ? 'text-gray-300' : 'text-blue-700'}>{renderMarkdownWithCodeBlocks(question.explanation)}</div>
         </div>
       )}
     </div>
