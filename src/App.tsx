@@ -45,9 +45,12 @@ function getSchemaForTypes(types: QuestionType[]): string {
   return types.map(t => QUESTION_TYPE_SCHEMA[t]).join(',\n');
 }
 
-const AI_PROMPT = (material: string, numQuestions: number, customInstructions: string, types: QuestionType[]) => {
+const AI_PROMPT = (material: string, numQuestions: number | 'custom', customInstructions: string, types: QuestionType[]) => {
   const typeList = types.map(t => QUESTION_TYPE_LABELS[t]).join(', ');
-  return `\nYou are an expert quiz maker. Based on the following study material, generate ${numQuestions} high-quality, diverse, and challenging questions. Allowed question types: ${typeList}.\n\nFor each question, use the following JSON schema (choose the correct type for each question):\n[SCHEMA_START]\n[\n${getSchemaForTypes(types)}\n]\n[SCHEMA_END]\n\n${customInstructions && customInstructions.trim() ? `\n\nFollow these additional instructions from the user:\n${customInstructions.trim()}\n` : ''}\nReturn ONLY a JSON array in this format (no extra text):\n[START_JSON]\n[\n  ...\n]\n[END_JSON]\n\nMaterial:\n${material}\n\nIMPORTANT: If you include any code, formulas, or structured data in your explanations, always format them as code blocks using triple backticks (\`\`\`) with the appropriate language if possible. Use proper indentation and spacing. The output will be parsed and rendered on screen as code blocks, so do not use inline code for multi-line code or formulas. Do not add extra commentary outside the JSON or code blocks.`;
+  const numQText = numQuestions === 'custom'
+    ? 'an appropriate number of'
+    : numQuestions;
+  return `\nYou are an expert quiz maker. Based on the following study material, generate ${numQText} high-quality, diverse, and challenging questions. Allowed question types: ${typeList}.\n\nFor each question, use the following JSON schema (choose the correct type for each question):\n[SCHEMA_START]\n[\n${getSchemaForTypes(types)}\n]\n[SCHEMA_END]\n\n${customInstructions && customInstructions.trim() ? `\n\nFollow these additional instructions from the user:\n${customInstructions.trim()}\n` : ''}\nReturn ONLY a JSON array in this format (no extra text):\n[START_JSON]\n[\n  ...\n]\n[END_JSON]\n\nMaterial:\n${material}\n\nIMPORTANT: If you include any code, formulas, or structured data in your explanations, always format them as code blocks using triple backticks (\`\`\`) with the appropriate language if possible. Use proper indentation and spacing. The output will be parsed and rendered on screen as code blocks, so do not use inline code for multi-line code or formulas. Do not add extra commentary outside the JSON or code blocks.`;
 };
 
 const DEFAULT_TYPES: QuestionType[] = ['mcq'];
@@ -102,7 +105,8 @@ const App: React.FC = () => {
   const [mode, setMode] = useState<'ai' | 'json'>('ai');
   // AI mode state
   const [aiInput, setAiInput] = useState('');
-  const [aiNumQuestions, setAiNumQuestions] = useState(5);
+  const [aiNumQuestions, setAiNumQuestions] = useState<number>(5);
+  const [aiCustomNumQuestions, setAiCustomNumQuestions] = useState<boolean>(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiRawResponse, setAiRawResponse] = useState<string | null>(null);
   const [showRawResponse, setShowRawResponse] = useState(false);
@@ -111,6 +115,8 @@ const App: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-flash');
   const [alwaysShowDebug, setAlwaysShowDebug] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [lastPrompt, setLastPrompt] = useState<string | null>(null);
+  const [showPromptCopied, setShowPromptCopied] = useState(false);
 
   // Improved JSON extraction: Try to extract JSON array even if [START_JSON]/[END_JSON] are missing
   function extractJsonFromResponse(text: string): string | null {
@@ -165,8 +171,15 @@ const App: React.FC = () => {
     setAiLoading(true);
     setAiRawResponse(null);
     setShowRawResponse(false);
+    setShowPromptCopied(false);
     try {
-      const prompt = AI_PROMPT(aiInput, aiNumQuestions, customInstructions, selectedTypes);
+      const prompt = AI_PROMPT(
+        aiInput,
+        aiCustomNumQuestions ? 'custom' : aiNumQuestions,
+        customInstructions,
+        selectedTypes
+      );
+      setLastPrompt(prompt);
       const modelId = selectedModel || 'gemini-2.5-flash';
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${GEMINI_API_KEY}`, {
         method: 'POST',
@@ -354,7 +367,17 @@ const App: React.FC = () => {
                   className={`w-20 p-2 rounded border ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
                   value={aiNumQuestions}
                   onChange={e => setAiNumQuestions(Number(e.target.value))}
+                  disabled={aiCustomNumQuestions}
                 />
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={aiCustomNumQuestions}
+                    onChange={e => setAiCustomNumQuestions(e.target.checked)}
+                    className="accent-indigo-600 w-5 h-5"
+                  />
+                  <span>Custom (AI decides)</span>
+                </label>
               </div>
               <div className="mb-4">
                 <label htmlFor="model-select" className="block font-semibold mb-1">Select Gemini Model:</label>
@@ -385,6 +408,21 @@ const App: React.FC = () => {
               >
                 {aiLoading ? 'Generating...' : 'Generate Quiz'}
               </button>
+              {lastPrompt && (
+                <div className="mt-4 flex items-center gap-4">
+                  <button
+                    className="px-4 py-2 bg-indigo-500 text-white rounded-lg font-semibold hover:bg-indigo-700 transition"
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(lastPrompt);
+                      setShowPromptCopied(true);
+                      setTimeout(() => setShowPromptCopied(false), 2000);
+                    }}
+                  >
+                    Copy Prompt
+                  </button>
+                  {showPromptCopied && <span className="text-green-500 font-semibold">Prompt copied!</span>}
+                </div>
+              )}
             </div>
           )}
           {mode === 'json' && (
