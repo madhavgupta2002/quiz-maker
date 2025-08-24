@@ -3,7 +3,7 @@ import QuizApp from './components/QuizApp';
 import { useDarkMode } from './contexts/DarkModeContext';
 import { Question, QuestionType } from './types';
 
-const GEMINI_API_KEY = 'AIzaSyBgnA_BgnoYZY9IJl3LQ_LK1nbCeU18w24'; // <-- Place your Gemini API key here
+const GEMINI_API_KEY = 'AIzaSyDd7TVb8UCad8_nxoQDoZZ9A2E5ysXeCH0'; // <-- Place your Gemini API key here
 
 const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
   mcq: 'MCQ (Single Correct)',
@@ -72,6 +72,13 @@ ${material}
 
 const DEFAULT_TYPES: QuestionType[] = ['mcq'];
 
+const GEMINI_MODELS = [
+  { name: 'Gemini 2.5 Pro', id: 'gemini-2.5-pro' },
+  { name: 'Gemini 2.5 Flash', id: 'gemini-2.5-flash' },
+  { name: 'Gemini 2.5 Flash-Lite', id: 'gemini-2.5-flash-lite' },
+  { name: 'Gemini 2.0 Flash', id: 'gemini-2.0-flash' },
+];
+
 const App: React.FC = () => {
   const { isDarkMode, toggleDarkMode } = useDarkMode();
   const [quizQuestions, setQuizQuestions] = useState<Question[] | null>(null);
@@ -86,6 +93,8 @@ const App: React.FC = () => {
   const [showRawResponse, setShowRawResponse] = useState(false);
   const [customInstructions, setCustomInstructions] = useState('');
   const [selectedTypes, setSelectedTypes] = useState<QuestionType[]>(DEFAULT_TYPES);
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-flash');
+  const [alwaysShowDebug, setAlwaysShowDebug] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Improved JSON extraction: Try to extract JSON array even if [START_JSON]/[END_JSON] are missing
@@ -143,7 +152,8 @@ const App: React.FC = () => {
     setShowRawResponse(false);
     try {
       const prompt = AI_PROMPT(aiInput, aiNumQuestions, customInstructions, selectedTypes);
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-04-17:generateContent?key=${GEMINI_API_KEY}`, {
+      const modelId = selectedModel || 'gemini-2.5-flash';
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${GEMINI_API_KEY}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -151,6 +161,7 @@ const App: React.FC = () => {
         })
       });
       const data = await response.json();
+      console.log('Gemini AI API full response:', data); // <-- Print full response
       // Find the text response
       const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
       setAiRawResponse(text);
@@ -223,6 +234,22 @@ const App: React.FC = () => {
         ? prev.length === 1 ? prev : prev.filter(t => t !== type)
         : [...prev, type]
     );
+  };
+
+  // Add this function to handle downloading the API response
+  const handleDownloadApiResponse = () => {
+    if (!aiRawResponse) return;
+    const blob = new Blob([
+      typeof aiRawResponse === 'string' ? aiRawResponse : JSON.stringify(aiRawResponse, null, 2)
+    ], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'gemini_api_response.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -314,6 +341,19 @@ const App: React.FC = () => {
                 />
               </div>
               <div className="mb-4">
+                <label htmlFor="model-select" className="block font-semibold mb-1">Select Gemini Model:</label>
+                <select
+                  id="model-select"
+                  className="border rounded px-3 py-2 w-full max-w-xs dark:bg-gray-800 dark:text-white"
+                  value={selectedModel}
+                  onChange={e => setSelectedModel(e.target.value)}
+                >
+                  {GEMINI_MODELS.map(model => (
+                    <option key={model.id} value={model.id}>{model.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="mb-4">
                 <label className="font-semibold block mb-1">Custom Instructions (optional):</label>
                 <textarea
                   className={`w-full h-20 p-3 rounded-lg border ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
@@ -351,20 +391,25 @@ const App: React.FC = () => {
           {error && (
             <div className="text-red-500 mt-4">
               {error}
-              {error.includes('Could not find JSON in AI response.') && aiRawResponse && (
-                <>
-                  <button
-                    className="ml-4 px-3 py-1 bg-gray-300 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded hover:bg-gray-400 dark:hover:bg-gray-600 font-semibold"
-                    onClick={() => setShowRawResponse(v => !v)}
-                  >
-                    {showRawResponse ? 'Hide AI Response' : 'View AI Response'}
-                  </button>
-                  {showRawResponse && (
-                    <div className="mt-4 p-4 bg-gray-100 dark:bg-gray-800 rounded overflow-auto max-h-96 text-xs whitespace-pre-wrap break-all border border-gray-300 dark:border-gray-700">
-                      {aiRawResponse}
-                    </div>
+              {((error && aiRawResponse) || alwaysShowDebug) && (
+                <div className="flex flex-row gap-4 mt-4">
+                  {aiRawResponse && (
+                    <button
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition"
+                      onClick={() => setShowRawResponse(v => !v)}
+                    >
+                      {showRawResponse ? 'Hide AI Response' : 'View AI Response'}
+                    </button>
                   )}
-                </>
+                  {aiRawResponse && (
+                    <button
+                      className="px-4 py-2 bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600 transition"
+                      onClick={handleDownloadApiResponse}
+                    >
+                      Download API Response (Debug)
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           )}
